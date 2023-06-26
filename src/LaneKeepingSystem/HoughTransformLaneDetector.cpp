@@ -238,7 +238,7 @@ std::pair<std::vector<std::vector<int>>, bool> HoughTransformLaneDetector<PREC>:
 }
 
 template <typename PREC>
-std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(const cv::Mat& image)
+std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(const cv::Mat& image, Eigen::Vector2d& inputVector)
 {
     cv::Mat grayImage;
     cv::cvtColor(image, grayImage, cv::COLOR_BGR2GRAY);
@@ -287,8 +287,8 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(co
     }
 
     // std::cout << "all line size: " << allLines.size() << std::endl;
-    std::cout << "cluster lane size: " << lanePositions.size() << std::endl;
-    std::cout << "detected stop lane: " << detectedStopLane << std::endl;
+    // std::cout << "cluster lane size: " << lanePositions.size() << std::endl;
+    // std::cout << "detected stop lane: " << detectedStopLane << std::endl;
 
     int i = 0;
     PREC left_minimum_distance = mPrevLeftPosition == -1 ? 10000 : mContinusThreshold;
@@ -299,10 +299,6 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(co
 
     bool leftUpdated = false;
     bool rightUpdated = false;
-
-    Eigen::Vector2d inputVector;
-
-    inputVector << 0, 0;
 
     mLeftKalmanFilter->predict(inputVector);
     mRightKalmanFilter->predict(inputVector);

@@ -17,12 +17,16 @@
 #include <cmath>
 #include <eigen3/Eigen/Dense>
 #include <ros/ros.h>
+#include <string>
 #include <tuple>
+#include <vector>
 
 #include <sensor_msgs/Image.h>
+#include <sensor_msgs/LaserScan.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <xycar_msgs/xycar_motor.h>
 #include <yaml-cpp/yaml.h>
+#include <yolov3_trt_ros/BoundingBoxes.h>
 
 #include "LaneKeepingSystem/BinaryFilter.hpp"
 #include "LaneKeepingSystem/HoughTransformLaneDetector.hpp"
@@ -94,6 +98,10 @@ private:
      */
     void imageCallback(const sensor_msgs::Image& message);
 
+    void liDARCallback(const sensor_msgs::LaserScan::ConstPtr& message);
+
+    void trafficSignCallback(const yolov3_trt_ros::BoundingBoxes& message);
+
 private:
     ControllerPtr mPID;                      ///< PID Class for Control
     FilterPtr mMovingAverage;                ///< Moving Average Filter Class for Noise filtering
@@ -107,6 +115,8 @@ private:
     ros::NodeHandle mNodeHandler; ///< Node Hanlder for ROS. In this case Detector and Controler
     ros::Publisher mPublisher;    ///< Publisher to send message about
     ros::Subscriber mSubscriber;  ///< Subscriber to receive image
+    ros::Subscriber mLidarSubscriber;
+    ros::Subscriber mTrafficSignSubscriber;
 
     ros::Publisher mVehicleStatePublisher;
     ros::Publisher mLanePositionPublisher;
@@ -118,6 +128,9 @@ private:
 
     // OpenCV Image processing Variables
     cv::Mat mFrame; ///< Image from camera. The raw image is converted into cv::Mat
+    std::vector<std::string> mDetectionLabel;
+
+    int16_t mTrafficSignLabel;
 
     // Xycar Device variables
     PREC mXycarSpeed;                 ///< Current speed of xycar

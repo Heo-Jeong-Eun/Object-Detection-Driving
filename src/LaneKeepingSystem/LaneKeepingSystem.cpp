@@ -29,12 +29,15 @@ LaneKeepingSystem<PREC>::LaneKeepingSystem()
 
     mPublisher = mNodeHandler.advertise<xycar_msgs::xycar_motor>(mPublishingTopicName, mQueueSize);
     mSubscriber = mNodeHandler.subscribe(mSubscribedTopicName, mQueueSize, &LaneKeepingSystem::imageCallback, this);
+    mLidarSubscriber = mNodeHandler.subscribe("/scan", 1, &LaneKeepingSystem::liDARCallback, this);
+    mTrafficSignSubscriber = mNodeHandler.subscribe("/yolov3_trt_ros/detections", 1, &LaneKeepingSystem::trafficSignCallback, this);
 
     mVehicleStatePublisher = mNodeHandler.advertise<std_msgs::Float32MultiArray>("/vehicle_state", 1);
     mLanePositionPublisher = mNodeHandler.advertise<std_msgs::Float32MultiArray>("/lane_position", 1);
 
     mStanley = std::make_unique<StanleyController<PREC>>(mStanleyGain, mStanleyLookAheadDistance);
     mBinaryFilter = std::make_unique<BinaryFilter<PREC>>(mStopSampleSize, mStopProbability);
+    mTrafficSignLabel = -1;
 }
 
 template <typename PREC>
@@ -57,6 +60,8 @@ void LaneKeepingSystem<PREC>::setParams(const YAML::Node& config)
     mAngleUnit = config["XYCAR"]["ANGLE_UNIT"].as<PREC>();
     mStopSampleSize = config["STOP"]["SAMPLE_SIZE"].as<int32_t>();
     mStopProbability = config["STOP"]["PROBABILITY"].as<PREC>();
+
+    mDetectionLabel = config["DETECTION"]["CLASSES"].as<std::vector<std::string>>();
 }
 
 template <typename PREC>
@@ -73,10 +78,15 @@ void LaneKeepingSystem<PREC>::run()
     bool setStopTimer = true;
     bool isStop = false;
 
+    std::string detectedTrafficSignLabel = "IGNORE";
+    Eigen::Vector2d inputVector;
+
     currentTime = now;
     previousTime = now;
     pubTime = now;
     stopTime = now;
+
+    inputVector << 0.f, 0.f;
 
     while (ros::ok())
     {
@@ -84,7 +94,11 @@ void LaneKeepingSystem<PREC>::run()
         if (mFrame.empty())
             continue;
 
-        auto [leftPositionX, rightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame);
+        if (mTrafficSignLabel > 0)
+        {
+            detectedTrafficSignLabel = mDetectionLabel[mTrafficSignLabel];
+        }
+        auto [leftPositionX, rightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame, inputVector);
         stopDetected = mHoughTransformLaneDetector->getStopLineStatus();
         currentTime = ros::Time::now();
 
@@ -93,7 +107,8 @@ void LaneKeepingSystem<PREC>::run()
 
         stopDetected = stopProbability > 0.5;
 
-        std::cout << "stop probability: " << stopProbability << std::endl;
+        std::cout << "sign: " << detectedTrafficSignLabel << std::endl;
+        std::cout << "input vector: " << inputVector(0) << std::endl;
 
         if (enableStopDetected && stopDetected && !previousStopDetected)
         {
@@ -106,14 +121,26 @@ void LaneKeepingSystem<PREC>::run()
         if (isStop)
         {
             ros::Duration stopDiff = currentTime - stopTime;
-            if (stopDiff.toSec() <= 5)
+            if (stopDiff.toSec() > 5)
             {
-                std::cout << "detected stop lane" << std::endl;
+                detectedTrafficSignLabel = "IGNORE";
+                isStop = false;
+                enableStopDetected = true;
+                inputVector << 0.f, 0.f;
+            }
+            if (detectedTrafficSignLabel == "RIGHT")
+            {
+                inputVector << 2.f, 2.f;
+            }
+            else if (detectedTrafficSignLabel == "LEFT")
+            {
+                inputVector << -2.f, -2.f;
+            }
+            else
+            {
                 stop(previousSteeringAngle);
                 continue;
             }
-            isStop = false;
-            enableStopDetected = true;
         }
 
         // if (!enableStopDetected)
@@ -135,8 +162,8 @@ void LaneKeepingSystem<PREC>::run()
 
         PREC stanleyResult = mStanley->getResult();
         PREC steeringAngle = std::max(static_cast<PREC>(-kXycarSteeringAangleLimit), std::min(static_cast<PREC>(stanleyResult), static_cast<PREC>(kXycarSteeringAangleLimit)));
-        std::cout << "error: " << errorFromMid << std::endl;
-        std::cout << "steeringAngle: " << stanleyResult << std::endl;
+        // std::cout << "error: " << errorFromMid << std::endl;
+        // std::cout << "steeringAngle: " << stanleyResult << std::endl;
 
         speedControl(steeringAngle);
         drive(steeringAngle);
@@ -180,6 +207,30 @@ void LaneKeepingSystem<PREC>::imageCallback(const sensor_msgs::Image& message)
 {
     cv::Mat src = cv::Mat(message.height, message.width, CV_8UC3, const_cast<uint8_t*>(&message.data[0]), message.step);
     cv::cvtColor(src, mFrame, cv::COLOR_RGB2BGR);
+}
+
+template <typename PREC>
+void LaneKeepingSystem<PREC>::liDARCallback(const sensor_msgs::LaserScan::ConstPtr& message)
+{
+    PREC angleIncrement = message->angle_increment;
+    for (int32_t i = 0; i < message->ranges.size(); i++)
+    {
+        PREC distance = message->ranges[i];
+        PREC angle = static_cast<PREC>(i) * angleIncrement;
+
+        // std::cout << "distance: " << distance << ", angle: " << angle << std::endl;
+    }
+}
+
+template <typename PREC>
+void LaneKeepingSystem<PREC>::trafficSignCallback(const yolov3_trt_ros::BoundingBoxes& message)
+{
+    // std::cout << "detected bounding box: " << message.bounding_boxes.size() << std::endl;
+    for (auto boundingBox : message.bounding_boxes)
+    {
+        // std::cout << "bounding box: " << mDetectionLabel[boundingBox.id] << ", " << boundingBox.probability << std::endl;
+        mTrafficSignLabel = boundingBox.id;
+    }
 }
 
 template <typename PREC>

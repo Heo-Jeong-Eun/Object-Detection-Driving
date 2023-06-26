@@ -55,18 +55,21 @@
   <build_depend>sensor_msgs</build_depend>
   <build_depend>std_msgs</build_depend>
   <build_depend>xycar_msgs</build_depend>
+  <build_depend>yolov3_trt_ros</build_depend>
   <build_export_depend>OpenCV</build_export_depend>
   <build_export_depend>yaml-cpp</build_export_depend>
   <build_export_depend>roscpp</build_export_depend>
   <build_export_depend>sensor_msgs</build_export_depend>
   <build_export_depend>std_msgs</build_export_depend>
   <build_export_depend>xycar_msgs</build_export_depend>
+  <build_export_depend>yolov3_trt_ros</build_export_depend>
   <exec_depend>OpenCV</exec_depend>
   <exec_depend>yaml-cpp</exec_depend>
   <exec_depend>roscpp</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>xycar_msgs</exec_depend>
+  <exec_depend>yolov3_trt_ros</exec_depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->
