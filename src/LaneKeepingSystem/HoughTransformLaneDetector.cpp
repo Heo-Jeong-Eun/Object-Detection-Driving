@@ -33,6 +33,8 @@ void HoughTransformLaneDetector<PREC>::setConfiguration(const YAML::Node& config
     mHoughMaxLineGap = config["HOUGH"]["MAX_LINE_GAP"].as<int32_t>();
     mDebugging = config["DEBUG"].as<bool>();
     mContinusThreshold = config["HOUGH"]["CONTINUS_THRESHOLD"].as<int32_t>();
+    mHoughClusterDistance = config["HOUGH"]["CLUSTER_DISTANCE"].as<PREC>();
+    mHoughRadian = config["HOUGH"]["CLUSTER_RADIAN"].as<PREC>();
 
     mPrevLeftPosition = 220;
     mPrevRightPosition = 420;
@@ -48,7 +50,7 @@ void HoughTransformLaneDetector<PREC>::setConfiguration(const YAML::Node& config
 
     initialLeftX << 220, -0.1;
     initialRightX << 420, 0.1;
-    kalmanP << 0.7, 0, 0, 0.7;
+    kalmanP << 0.7, 0, 0, 0.3;
     kalmanF << 1, 1, 0, 0;
     kalmanH << 1, 1, 0, 0;
     kalmanQ << 0.05, 0, 0, 0.05;
@@ -106,7 +108,7 @@ int32_t HoughTransformLaneDetector<PREC>::getLinePositionX(const Lines& lines, c
 }
 
 template <typename PREC>
-std::vector<std::vector<int>> HoughTransformLaneDetector<PREC>::divideLines(const Lines& lines)
+std::pair<std::vector<std::vector<int>>, bool> HoughTransformLaneDetector<PREC>::divideLines(const Lines& lines)
 {
     std::vector<Indices> clusterLineIndices;
     Indices leftLineIndices;
@@ -132,20 +134,30 @@ std::vector<std::vector<int>> HoughTransformLaneDetector<PREC>::divideLines(cons
         double centerX = (x1 + x2) / 2;
         double centerY = (y1 + y2) / 2;
 
-        double radian = std::atan2(x1 - x2, std::abs(y1 - y2));
+        double radian = std::atan2(std::abs(y1 - y2), x1 - x2);
         std::array<double, 7> laneInfo = { x1, y1, x2, y2, centerX, centerY, radian };
+
         lanes.push_back(laneInfo);
     }
 
+    linesSize = static_cast<uint32_t>(lanes.size());
+
     std::vector<bool> visited(linesSize, false);
-    std::vector<std::vector<int>> clusterLaneIndexs;
-    const PREC distanceThreshold = 45.f;
-    const PREC radianThreshold = 0.523599; // threshold raidan 30 degree -> radian
+    std::vector<std::vector<int32_t>> clusterLaneIndexs;
+    const PREC distanceThreshold = mHoughClusterDistance;
+    const PREC radianThreshold = mHoughRadian;   // threshold raidan 30 degree -> radian
+    const PREC radianLowerThreshold = 0.0872665; // 10 degree to radian
+    const PREC radianUpperThreshold = 3.05433;   // 170 degree to radian
+    bool hasStopLane = false;
+    PREC centerX = (mPrevLeftPosition + mPrevRightPosition) / 2;
 
     for (uint32_t i = 0; i < linesSize; i++)
     {
+        auto currentLane = lanes[i];
         auto color = kRed;
         uint32_t num = clusterLaneIndexs.size() % 3;
+        std::vector<int> cluster;
+        std::queue<int> queue;
 
         if (num == 0)
         {
@@ -155,13 +167,12 @@ std::vector<std::vector<int>> HoughTransformLaneDetector<PREC>::divideLines(cons
         {
             color = kGreen;
         }
-        std::vector<int> cluster;
-        std::queue<int> queue;
 
         if (visited[i])
         {
             continue;
         }
+        //  || currentLane[6] <= radianLowerThreshold || currentLane[6] >= radianUpperThreshold
 
         visited[i] = true;
         queue.push(i);
@@ -171,11 +182,10 @@ std::vector<std::vector<int>> HoughTransformLaneDetector<PREC>::divideLines(cons
             int currentIndex = queue.front();
             auto currentLane = lanes[currentIndex];
             queue.pop();
-
             cluster.push_back(currentIndex);
 
-            // cv::rectangle(mDebugFrame, cv::Point(currentLane[4] - kDebugRectangleHalfWidth, kDebugRectangleStartHeight + mROIStartHeight + currentLane[5]),
-            //               cv::Point(currentLane[4] + kDebugRectangleHalfWidth, kDebugRectangleEndHeight + mROIStartHeight + currentLane[5]), color, kDebugLineWidth);
+            cv::rectangle(mDebugFrame, cv::Point(currentLane[4] - kDebugRectangleHalfWidth, kDebugRectangleStartHeight + mROIStartHeight + currentLane[5]),
+                          cv::Point(currentLane[4] + kDebugRectangleHalfWidth, kDebugRectangleEndHeight + mROIStartHeight + currentLane[5]), color, kDebugLineWidth);
 
             for (uint32_t j = 0; j < linesSize; j++)
             {
@@ -199,10 +209,32 @@ std::vector<std::vector<int>> HoughTransformLaneDetector<PREC>::divideLines(cons
         if (cluster.size() > 2)
         {
             clusterLaneIndexs.push_back(cluster);
+            int32_t clusterSize = cluster.size();
+            PREC sumCenterX = 0.f;
+            PREC sumRadian = 0.f;
+            PREC averageCenterX = 0.f;
+            PREC averageRadian = 0.f;
+
+            for (auto laneIndex : cluster)
+            {
+                auto lane = lanes[i];
+                sumCenterX += lane[4];
+                sumRadian += lane[6];
+            }
+
+            averageCenterX = sumCenterX / static_cast<PREC>(clusterSize);
+            averageRadian = sumRadian / static_cast<PREC>(clusterSize);
+
+            // std::cout << "center x: " << averageCenterX << ", radian: " << averageRadian << std::endl;
+
+            if (std::abs(centerX - averageCenterX) <= static_cast<PREC>(mImageWidth) * 0.05 && (averageRadian >= radianUpperThreshold || averageRadian <= radianLowerThreshold))
+            {
+                hasStopLane = true;
+            }
         }
     }
 
-    return clusterLaneIndexs;
+    return { clusterLaneIndexs, hasStopLane };
 }
 
 template <typename PREC>
@@ -227,7 +259,7 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(co
     if (allLines.empty())
         return { mPrevLeftPosition, mPrevRightPosition };
 
-    const auto lanes = divideLines(allLines);
+    const auto [lanes, detectedStopLane] = divideLines(allLines);
     std::vector<PREC> lanePositions;
 
     for (int i = 0; i < lanes.size(); i++)
@@ -254,8 +286,9 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(co
         }
     }
 
-    std::cout << "all line size: " << allLines.size() << std::endl;
+    // std::cout << "all line size: " << allLines.size() << std::endl;
     std::cout << "cluster lane size: " << lanePositions.size() << std::endl;
+    std::cout << "detected stop lane: " << detectedStopLane << std::endl;
 
     int i = 0;
     PREC left_minimum_distance = mPrevLeftPosition == -1 ? 10000 : mContinusThreshold;
@@ -331,11 +364,12 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(co
     Eigen::Vector2d leftResult = mLeftKalmanFilter->getState();
     Eigen::Vector2d rightResult = mRightKalmanFilter->getState();
 
-    std::cout << "left: " << leftResult(0) << ", " << leftResult(1) << std::endl;
-    std::cout << "right: " << rightResult(0) << ", " << rightResult(1) << std::endl;
+    // std::cout << "left: " << leftResult(0) << ", " << leftResult(1) << std::endl;
+    // std::cout << "right: " << rightResult(0) << ", " << rightResult(1) << std::endl;
 
     mPrevLeftPosition = leftResult(0);
     mPrevRightPosition = rightResult(0);
+    mStopDetected = detectedStopLane;
 
     return { leftResult(0), rightResult(0) };
 }
@@ -396,6 +430,12 @@ template <typename PREC>
 std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getPrevLinePosition()
 {
     return { mPrevLeftPosition, mPrevRightPosition };
+}
+
+template <typename PREC>
+bool HoughTransformLaneDetector<PREC>::getStopLineStatus()
+{
+    return mStopDetected;
 }
 
 template class HoughTransformLaneDetector<float>;

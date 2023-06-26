@@ -24,6 +24,7 @@
 #include <xycar_msgs/xycar_motor.h>
 #include <yaml-cpp/yaml.h>
 
+#include "LaneKeepingSystem/BinaryFilter.hpp"
 #include "LaneKeepingSystem/HoughTransformLaneDetector.hpp"
 #include "LaneKeepingSystem/LaneKalmanFilter.hpp"
 #include "LaneKeepingSystem/MovingAverageFilter.hpp"
@@ -48,6 +49,7 @@ public:
     using VehiclePtr = typename VehicleModel<PREC>::Ptr;
     using KalmanFilterPtr = typename LaneKalmanFilter<PREC>::Ptr;
     using StanleyPtr = typename StanleyController<PREC>::Ptr;
+    using BinaryFilterPtr = typename BinaryFilter<PREC>::Ptr;
 
     static constexpr int32_t kXycarSteeringAangleLimit = 50; ///< Xycar Steering Angle Limit
     static constexpr double kFrameRate = 33.0;               ///< Frame rate
@@ -83,6 +85,8 @@ private:
      */
     void drive(PREC steeringAngle);
 
+    void stop(PREC steeringAngle);
+
     /**
      * @brief Callback function for image topic
      *
@@ -96,6 +100,7 @@ private:
     DetectorPtr mHoughTransformLaneDetector; ///< Hough Transform Lane Detector Class for Lane Detection
     VehiclePtr mVehicleModel;
     KalmanFilterPtr mKalmanFilter;
+    BinaryFilterPtr mBinaryFilter;
     StanleyPtr mStanley;
 
     // ROS Variables
@@ -124,6 +129,9 @@ private:
 
     PREC mStanleyGain;
     PREC mStanleyLookAheadDistance;
+
+    PREC mStopSampleSize;
+    PREC mStopProbability;
 
     PREC mLinearUnit;
     PREC mAngleUnit;

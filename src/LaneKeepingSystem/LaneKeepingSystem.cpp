@@ -34,6 +34,7 @@ LaneKeepingSystem<PREC>::LaneKeepingSystem()
     mLanePositionPublisher = mNodeHandler.advertise<std_msgs::Float32MultiArray>("/lane_position", 1);
 
     mStanley = std::make_unique<StanleyController<PREC>>(mStanleyGain, mStanleyLookAheadDistance);
+    mBinaryFilter = std::make_unique<BinaryFilter<PREC>>(mStopSampleSize, mStopProbability);
 }
 
 template <typename PREC>
@@ -54,21 +55,28 @@ void LaneKeepingSystem<PREC>::setParams(const YAML::Node& config)
 
     mLinearUnit = config["XYCAR"]["LINEAR_UNIT"].as<PREC>();
     mAngleUnit = config["XYCAR"]["ANGLE_UNIT"].as<PREC>();
+    mStopSampleSize = config["STOP"]["SAMPLE_SIZE"].as<int32_t>();
+    mStopProbability = config["STOP"]["PROBABILITY"].as<PREC>();
 }
 
 template <typename PREC>
 void LaneKeepingSystem<PREC>::run()
 {
     ros::Rate rate(kFrameRate);
-    ros::Time currentTime, previousTime, pubTime;
+    ros::Time currentTime, previousTime, pubTime, stopTime;
     ros::Time now = ros::Time::now();
     PREC previousSteeringAngle = 0.f;
-    PREC gradientLeftX = -0.1;
-    PREC gradientRightX = 0.1;
+
+    bool enableStopDetected = true;
+    bool previousStopDetected = false;
+    bool stopDetected = false;
+    bool setStopTimer = true;
+    bool isStop = false;
 
     currentTime = now;
     previousTime = now;
     pubTime = now;
+    stopTime = now;
 
     while (ros::ok())
     {
@@ -77,8 +85,46 @@ void LaneKeepingSystem<PREC>::run()
             continue;
 
         auto [leftPositionX, rightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame);
-
+        stopDetected = mHoughTransformLaneDetector->getStopLineStatus();
         currentTime = ros::Time::now();
+
+        mBinaryFilter->addSample(stopDetected);
+        PREC stopProbability = mBinaryFilter->getResult();
+
+        stopDetected = stopProbability > 0.5;
+
+        std::cout << "stop probability: " << stopProbability << std::endl;
+
+        if (enableStopDetected && stopDetected && !previousStopDetected)
+        {
+            stopTime = currentTime;
+            setStopTimer = false;
+            isStop = true;
+            enableStopDetected = false;
+        }
+
+        if (isStop)
+        {
+            ros::Duration stopDiff = currentTime - stopTime;
+            if (stopDiff.toSec() <= 5)
+            {
+                std::cout << "detected stop lane" << std::endl;
+                stop(previousSteeringAngle);
+                continue;
+            }
+            isStop = false;
+            enableStopDetected = true;
+        }
+
+        // if (!enableStopDetected)
+        // {
+        //     ros::Duration stopDiff = currentTime - stopTime;
+        //     if (stopDiff.toSec() <= 10)
+        //     {
+        //         enableStopDetected = true;
+        //     }
+        // }
+
         ros::Duration delta_t = currentTime - previousTime;
         mVehicleModel->update(mXycarSpeed / mLinearUnit, previousSteeringAngle * M_PI / 180.f, static_cast<double>(delta_t.toNSec()) / 1000000.f / 1000.f);
 
@@ -125,6 +171,7 @@ void LaneKeepingSystem<PREC>::run()
 
         previousTime = ros::Time::now();
         previousSteeringAngle = steeringAngle;
+        previousStopDetected = stopDetected;
     }
 }
 
@@ -147,6 +194,18 @@ void LaneKeepingSystem<PREC>::speedControl(PREC steeringAngle)
 
     mXycarSpeed += mAccelerationStep;
     mXycarSpeed = std::min(mXycarSpeed, mXycarMaxSpeed);
+}
+
+template <typename PREC>
+void LaneKeepingSystem<PREC>::stop(PREC steeringAngle)
+{
+    xycar_msgs::xycar_motor motorMessage;
+
+    motorMessage.header.stamp = ros::Time::now();
+    motorMessage.angle = steeringAngle;
+    motorMessage.speed = 0;
+
+    mPublisher.publish(motorMessage);
 }
 
 template <typename PREC>

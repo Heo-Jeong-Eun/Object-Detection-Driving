@@ -110,6 +110,7 @@ public:
 
     void setPrevLinePosition(int32_t leftPosition, int32_t rightPosition);
     std::pair<int32_t, int32_t> getPrevLinePosition();
+    bool getStopLineStatus();
 
 private:
     /**
@@ -125,7 +126,7 @@ private:
      * @param[in] lines Line vectors from Hough Transform
      * @return Left line index vector, right line index vector
      */
-    std::vector<std::vector<int>> divideLines(const Lines& lines);
+    std::pair<std::vector<std::vector<int>>, bool> divideLines(const Lines& lines);
 
     /**
      * @brief Get the line positions x
@@ -161,7 +162,9 @@ private:
     int32_t mHoughThreshold;         ///< Accumulator threshold parameter. Only those lines are returned that get enough votes
     int32_t mHoughMinLineLength;     ///< Minimum line length. Line segments shorter than that are rejected.
     int32_t mHoughMaxLineGap;        ///< Maximum allowed gap between points on the same line to link them.
-    PREC mHoughLineSlopeRange;       ///< Slope range to limit Hough lines
+    PREC mHoughClusterDistance;
+    PREC mHoughRadian;
+    PREC mHoughLineSlopeRange; ///< Slope range to limit Hough lines
 
     // Image parameters
     int32_t mImageWidth;     ///< The width of the image
@@ -174,6 +177,7 @@ private:
     // Debug Image and flag
     cv::Mat mDebugFrame; ///< The frame for debugging
     bool mDebugging;     ///< Debugging or not
+    bool mStopDetected;
 
     PREC mPrevLeftPosition;
     PREC mPrevRightPosition;

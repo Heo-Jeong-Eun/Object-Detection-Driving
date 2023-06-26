@@ -134,6 +134,7 @@ add_library(modules
   src/${CAMEL_PROJECT_NAME}/StanleyController.cpp
   src/${CAMEL_PROJECT_NAME}/VehicleModel.cpp
   src/${CAMEL_PROJECT_NAME}/LaneKalmanFilter.cpp
+  src/${CAMEL_PROJECT_NAME}/BinaryFilter.cpp
 )
 
 add_executable(${CAMEL_PROJECT_NAME}_node src/main.cpp)
