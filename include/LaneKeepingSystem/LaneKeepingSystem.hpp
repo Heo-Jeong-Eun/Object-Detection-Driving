@@ -149,14 +149,18 @@ private:
     PREC mLinearUnit;
     PREC mAngleUnit;
 
+    PREC mRotateThreshold;
+
     PREC mLidarAngleThreshold;
     PREC mLidarDistanceThreshold;
     PREC mLidarClusterThreshold;
     PREC mLidarClusterMinpoint;
     PREC mLidarClusterMaxpoint;
     PREC mLidarTrackingThreshold;
+    PREC mLidarTrackingMissSecond;
 
     std::pair<PREC, PREC> mAvoidanceInput;
+    std::pair<PREC, PREC> mRotateInput;
 
     std::vector<std::tuple<PREC, PREC, PREC, PREC, ros::Time>> mLidarDetectBox;
 

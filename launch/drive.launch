@@ -10,7 +10,7 @@
     <param name="frame_id" type="string" value="imu" />
     <param name="topic" type="string" value="imu" />
   </node> -->
-  <include file="$(find xycar_lidar)/launch/lidar_noviewer.launch" />
+  <!-- <include file="$(find xycar_lidar)/launch/lidar_noviewer.launch" /> -->
   <node name="usb_cam" output="screen" pkg="usb_cam" type="usb_cam_node">
     <param name="video_device" value="/dev/videoCAM" />
     <param name="autoexposure" value="false" />
