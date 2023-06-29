@@ -62,24 +62,36 @@ void LaneKeepingSystem<PREC>::setParams(const YAML::Node& config)
     mStopProbability = config["STOP"]["PROBABILITY"].as<PREC>();
 
     mDetectionLabel = config["DETECTION"]["CLASSES"].as<std::vector<std::string>>();
+    mLidarAngleThreshold = config["LIDAR"]["RANGE_RADIAN_THRESHOLD"].as<PREC>();
+    mLidarDistanceThreshold = config["LIDAR"]["RANGE_DISTANCE_THRESHOLD"].as<PREC>();
+    mLidarClusterThreshold = config["LIDAR"]["CLUSTER_DISTANCE_THRESHOLD"].as<PREC>();
+    mLidarClusterMinpoint = config["LIDAR"]["CLUSTER_MIN_POINT"].as<PREC>();
+    mLidarClusterMaxpoint = config["LIDAR"]["CLUSTER_MAX_POINT"].as<PREC>();
+    mLidarTrackingThreshold = config["LIDAR"]["TRACKING_DISTANCE_THRESHOLD"].as<PREC>();
+    mAvoidanceInput = std::make_pair(config["AVOIDANCE_INPUT"]["POSITION"].as<PREC>(), config["AVOIDANCE_INPUT"]["SLOPE"].as<PREC>());
 }
 
 template <typename PREC>
 void LaneKeepingSystem<PREC>::run()
 {
+    const PREC PI = std::atan(1) * 4.0;
     ros::Rate rate(kFrameRate);
     ros::Time currentTime, previousTime, pubTime, stopTime;
     ros::Time now = ros::Time::now();
     PREC previousSteeringAngle = 0.f;
+    PREC steeringMaxRadian = kXycarSteeringAangleLimit * (PI / 180.f);
 
+    std::cout << "max radian: " << steeringMaxRadian << std::endl;
     bool enableStopDetected = true;
     bool previousStopDetected = false;
     bool stopDetected = false;
     bool setStopTimer = true;
     bool isStop = false;
+    bool runUpdate = true;
 
     std::string detectedTrafficSignLabel = "IGNORE";
     Eigen::Vector2d inputVector;
+    Eigen::Vector2d zeroVector;
 
     currentTime = now;
     previousTime = now;
@@ -91,24 +103,81 @@ void LaneKeepingSystem<PREC>::run()
     while (ros::ok())
     {
         ros::spinOnce();
+
         if (mFrame.empty())
             continue;
+
+        mHoughTransformLaneDetector->copyDebugFrame(mFrame);
 
         if (mTrafficSignLabel > 0)
         {
             detectedTrafficSignLabel = mDetectionLabel[mTrafficSignLabel];
         }
-        auto [leftPositionX, rightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame, inputVector);
-        stopDetected = mHoughTransformLaneDetector->getStopLineStatus();
-        currentTime = ros::Time::now();
 
-        mBinaryFilter->addSample(stopDetected);
-        PREC stopProbability = mBinaryFilter->getResult();
+        int32_t leftPositionX = 0;
+        int32_t rightPositionX = 640;
 
-        stopDetected = stopProbability > 0.5;
+        PREC steeringAngle = 0.f;
 
-        std::cout << "sign: " << detectedTrafficSignLabel << std::endl;
-        std::cout << "input vector: " << inputVector(0) << std::endl;
+        if (mLidarDetectBox.size() > 0)
+        {
+            const auto [positionInput, slopeInput] = mAvoidanceInput;
+            auto bbox = mLidarDetectBox[0];
+            PREC shortPointRadian = std::atan2(mLidarDistanceThreshold - (std::get<2>(bbox) + std::get<0>(bbox)) / 2.f, (std::get<3>(bbox) + std::get<1>(bbox)) / 2.f);
+            PREC PI_HALF = PI / 2.f;
+
+            // RIGHT LEFT
+            if (shortPointRadian < PI / 2.f)
+            {
+                steeringAngle = steeringMaxRadian * (shortPointRadian / PI_HALF);
+                inputVector << positionInput * -1, slopeInput * -1;
+            }
+            else
+            {
+                steeringAngle = steeringMaxRadian * ((PI_HALF - (shortPointRadian - PI_HALF)) / PI_HALF) * -1;
+                inputVector << positionInput, slopeInput;
+            }
+            runUpdate = false;
+            steeringAngle = static_cast<PREC>(steeringAngle * (180 / PI));
+            std::cout << "Lidar Driving Angle: " << steeringAngle << std::endl;
+
+            auto [predictLeftPositionX, predictRightPositionX] = mHoughTransformLaneDetector->predictLanePosition(inputVector);
+
+            leftPositionX = predictLeftPositionX;
+            rightPositionX = predictRightPositionX;
+        }
+        else
+        {
+            inputVector << 0.f, 0.f;
+            mHoughTransformLaneDetector->predictLanePosition(inputVector);
+            auto [predictLeftPositionX, predictRightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame, true);
+
+            leftPositionX = predictLeftPositionX;
+            rightPositionX = predictRightPositionX;
+
+            currentTime = ros::Time::now();
+            stopDetected = mHoughTransformLaneDetector->getStopLineStatus();
+
+            mBinaryFilter->addSample(stopDetected);
+            PREC stopProbability = mBinaryFilter->getResult();
+            stopDetected = stopProbability > 0.5;
+
+            ros::Duration delta_t = currentTime - previousTime;
+            mVehicleModel->update(mXycarSpeed / mLinearUnit, previousSteeringAngle * (M_PI / 180.f), static_cast<double>(delta_t.toNSec()) / 1000000.f / 1000.f);
+
+            int32_t estimatedPositionX = static_cast<int32_t>((leftPositionX + rightPositionX) / 2);
+            int32_t errorFromMid = estimatedPositionX - static_cast<int32_t>(mFrame.cols / 2);
+            mStanley->calculateSteeringAngle(errorFromMid, 0, mXycarSpeed);
+
+            PREC stanleyResult = mStanley->getResult();
+            steeringAngle = std::max(static_cast<PREC>(-kXycarSteeringAangleLimit), std::min(static_cast<PREC>(stanleyResult), static_cast<PREC>(kXycarSteeringAangleLimit)));
+        }
+
+        // std::cout << "position: " << leftPositionX << ", " << rightPositionX << std::endl;
+        // std::cout << "steeringAngle: " << steeringAngle << std::endl;
+        // std::cout << "sign: " << detectedTrafficSignLabel << std::endl;
+        // std::cout << "input vector: " << inputVector(0) << std::endl;
+        // std::cout << "stop: " << stopProbability << std::endl;
 
         if (enableStopDetected && stopDetected && !previousStopDetected)
         {
@@ -118,60 +187,17 @@ void LaneKeepingSystem<PREC>::run()
             enableStopDetected = false;
         }
 
-        if (isStop)
-        {
-            ros::Duration stopDiff = currentTime - stopTime;
-            if (stopDiff.toSec() > 5)
-            {
-                detectedTrafficSignLabel = "IGNORE";
-                isStop = false;
-                enableStopDetected = true;
-                inputVector << 0.f, 0.f;
-            }
-            if (detectedTrafficSignLabel == "RIGHT")
-            {
-                inputVector << 2.f, 2.f;
-            }
-            else if (detectedTrafficSignLabel == "LEFT")
-            {
-                inputVector << -2.f, -2.f;
-            }
-            else
-            {
-                stop(previousSteeringAngle);
-                continue;
-            }
-        }
-
-        // if (!enableStopDetected)
-        // {
-        //     ros::Duration stopDiff = currentTime - stopTime;
-        //     if (stopDiff.toSec() <= 10)
-        //     {
-        //         enableStopDetected = true;
-        //     }
-        // }
-
-        ros::Duration delta_t = currentTime - previousTime;
-        mVehicleModel->update(mXycarSpeed / mLinearUnit, previousSteeringAngle * M_PI / 180.f, static_cast<double>(delta_t.toNSec()) / 1000000.f / 1000.f);
-
         int32_t estimatedPositionX = static_cast<int32_t>((leftPositionX + rightPositionX) / 2);
-        int32_t errorFromMid = estimatedPositionX - static_cast<int32_t>(mFrame.cols / 2);
-
-        mStanley->calculateSteeringAngle(errorFromMid, 0, mXycarSpeed);
-
-        PREC stanleyResult = mStanley->getResult();
-        PREC steeringAngle = std::max(static_cast<PREC>(-kXycarSteeringAangleLimit), std::min(static_cast<PREC>(stanleyResult), static_cast<PREC>(kXycarSteeringAangleLimit)));
-        // std::cout << "error: " << errorFromMid << std::endl;
-        // std::cout << "steeringAngle: " << stanleyResult << std::endl;
 
         speedControl(steeringAngle);
         drive(steeringAngle);
 
+        previousSteeringAngle = steeringAngle;
+        previousStopDetected = stopDetected;
+
         if (mDebugging)
         {
             std_msgs::Float32MultiArray vehicleStateMsg;
-            std_msgs::Float32MultiArray lanePositionMsg;
 
             std::tuple<PREC, PREC, PREC> vehicleState = mVehicleModel->getResult();
 
@@ -186,19 +212,15 @@ void LaneKeepingSystem<PREC>::run()
             if (pubDiff.toSec() > 0.1)
             {
                 mVehicleStatePublisher.publish(vehicleStateMsg);
-                mLanePositionPublisher.publish(lanePositionMsg);
                 pubTime = ros::Time::now();
             }
 
-            // std::cout << "lpos: " << leftPositionX << ", rpos: " << rightPositionX << ", mpos: " << estimatedPositionX << std::endl;
             mHoughTransformLaneDetector->drawRectangles(leftPositionX, rightPositionX, estimatedPositionX);
             cv::imshow("Debug", mHoughTransformLaneDetector->getDebugFrame());
             cv::waitKey(1);
         }
 
         previousTime = ros::Time::now();
-        previousSteeringAngle = steeringAngle;
-        previousStopDetected = stopDetected;
     }
 }
 
@@ -212,13 +234,125 @@ void LaneKeepingSystem<PREC>::imageCallback(const sensor_msgs::Image& message)
 template <typename PREC>
 void LaneKeepingSystem<PREC>::liDARCallback(const sensor_msgs::LaserScan::ConstPtr& message)
 {
-    PREC angleIncrement = message->angle_increment;
+    const PREC angleIncrement = message->angle_increment;
+    const PREC radianThreshold = mLidarAngleThreshold;
+    const PREC distanceThreshold = mLidarDistanceThreshold;
+
+    const PREC clusterDistanceThreshold = mLidarClusterThreshold;
+    const PREC radian2 = 6.28319;
+
+    std::vector<std::array<PREC, 2>> XYLidarPoints;
+    std::vector<std::tuple<PREC, PREC, PREC, PREC, ros::Time>> lidarDetectBoxs;
+    std::vector<std::tuple<PREC, PREC, PREC, PREC, ros::Time>> lidarUpdateBoxs;
+
     for (int32_t i = 0; i < message->ranges.size(); i++)
     {
         PREC distance = message->ranges[i];
         PREC angle = static_cast<PREC>(i) * angleIncrement;
+        PREC x = distance * std::cos(angle);
+        PREC y = distance * std::sin(angle);
+        std::array<PREC, 2> pointXY = { x, y };
 
-        // std::cout << "distance: " << distance << ", angle: " << angle << std::endl;
+        if (distance > 0 && distance < distanceThreshold && (angle < radianThreshold || angle > radian2 - radianThreshold))
+        {
+            XYLidarPoints.push_back(pointXY);
+        }
+    }
+
+    const int32_t pointSize = XYLidarPoints.size();
+    std::vector<bool> visited(pointSize, false);
+
+    for (uint32_t i = 0; i < pointSize; i++)
+    {
+        std::vector<int> cluster;
+        std::queue<int> queue;
+
+        if (visited[i])
+        {
+            continue;
+        }
+
+        visited[i] = true;
+        queue.push(i);
+
+        while (!queue.empty())
+        {
+            int currentIndex = queue.front();
+            auto pointXY = XYLidarPoints[currentIndex];
+            queue.pop();
+            cluster.push_back(currentIndex);
+
+            for (uint32_t j = 0; j < pointSize; j++)
+            {
+                if (visited[j])
+                {
+                    continue;
+                }
+                auto targetPointXY = XYLidarPoints[j];
+                PREC dx = pointXY[0] - targetPointXY[0];
+                PREC dy = pointXY[1] - targetPointXY[1];
+                PREC distance = std::sqrt(dx * dx + dy * dy);
+
+                if (distance <= clusterDistanceThreshold)
+                {
+                    queue.push(j);
+                    visited[j] = true;
+                }
+            }
+        }
+        if (cluster.size() > mLidarClusterMinpoint && cluster.size() < mLidarClusterMaxpoint)
+        {
+            std::array<PREC, 4> detectedBox = { 10000.f, 10000.f, -1.f, -1.f };
+            for (auto index : cluster)
+            {
+                detectedBox[0] = std::min(detectedBox[0], XYLidarPoints[index][0]);
+                detectedBox[1] = std::min(detectedBox[1], XYLidarPoints[index][1]);
+                detectedBox[2] = std::max(detectedBox[2], XYLidarPoints[index][0]);
+                detectedBox[3] = std::max(detectedBox[3], XYLidarPoints[index][1]);
+            }
+
+            lidarDetectBoxs.push_back(std::make_tuple(detectedBox[0], detectedBox[1], detectedBox[2], detectedBox[3], ros::Time::now()));
+        }
+    }
+
+    ros::Time nowTime = ros::Time::now();
+
+    if (mLidarDetectBox.size() <= 0)
+    {
+        mLidarDetectBox = lidarDetectBoxs;
+    }
+    else
+    {
+        for (int32_t i = 0; i < mLidarDetectBox.size(); i++)
+        {
+            auto pBox = mLidarDetectBox[i];
+            ros::Duration timeDiff = nowTime - std::get<4>(pBox);
+
+            PREC prevX = (std::get<2>(pBox) + std::get<0>(pBox)) / 2.f;
+            PREC prevY = (std::get<3>(pBox) + std::get<1>(pBox)) / 2.f;
+            bool isUpdate = false;
+            for (auto box : lidarDetectBoxs)
+            {
+                PREC nowX = (std::get<2>(box) + std::get<0>(box)) / 2.f;
+                PREC nowY = (std::get<3>(box) + std::get<1>(box)) / 2.f;
+                PREC dx = nowX - prevX;
+                PREC dy = nowY - prevY;
+                PREC distance = std::sqrt(dx * dx + dy * dy);
+
+                if (distance <= mLidarTrackingThreshold)
+                {
+                    isUpdate = true;
+                    lidarUpdateBoxs.push_back(box);
+                    break;
+                }
+            }
+
+            if (!isUpdate && timeDiff.toSec() <= 3)
+            {
+                lidarUpdateBoxs.push_back(pBox);
+            }
+        }
+        mLidarDetectBox = lidarUpdateBoxs;
     }
 }
 

@@ -53,7 +53,7 @@ void HoughTransformLaneDetector<PREC>::setConfiguration(const YAML::Node& config
     kalmanP << 0.7, 0, 0, 0.3;
     kalmanF << 1, 1, 0, 0;
     kalmanH << 1, 1, 0, 0;
-    kalmanQ << 0.05, 0, 0, 0.05;
+    kalmanQ << 0.025, 0, 0, 0.025;
     kalmanR << 0.1, 0, 0, 0.1;
     kalmanB << 1, 0, 0, 1;
 
@@ -154,19 +154,8 @@ std::pair<std::vector<std::vector<int>>, bool> HoughTransformLaneDetector<PREC>:
     for (uint32_t i = 0; i < linesSize; i++)
     {
         auto currentLane = lanes[i];
-        auto color = kRed;
-        uint32_t num = clusterLaneIndexs.size() % 3;
         std::vector<int> cluster;
         std::queue<int> queue;
-
-        if (num == 0)
-        {
-            color = kBlue;
-        }
-        else if (num == 1)
-        {
-            color = kGreen;
-        }
 
         if (visited[i])
         {
@@ -183,9 +172,6 @@ std::pair<std::vector<std::vector<int>>, bool> HoughTransformLaneDetector<PREC>:
             auto currentLane = lanes[currentIndex];
             queue.pop();
             cluster.push_back(currentIndex);
-
-            cv::rectangle(mDebugFrame, cv::Point(currentLane[4] - kDebugRectangleHalfWidth, kDebugRectangleStartHeight + mROIStartHeight + currentLane[5]),
-                          cv::Point(currentLane[4] + kDebugRectangleHalfWidth, kDebugRectangleEndHeight + mROIStartHeight + currentLane[5]), color, kDebugLineWidth);
 
             for (uint32_t j = 0; j < linesSize; j++)
             {
@@ -238,7 +224,22 @@ std::pair<std::vector<std::vector<int>>, bool> HoughTransformLaneDetector<PREC>:
 }
 
 template <typename PREC>
-std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(const cv::Mat& image, Eigen::Vector2d& inputVector)
+std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::predictLanePosition(Eigen::Vector2d& inputVector)
+{
+    mLeftKalmanFilter->predict(inputVector);
+    mRightKalmanFilter->predict(inputVector);
+
+    Eigen::Vector2d leftResult = mLeftKalmanFilter->getState();
+    Eigen::Vector2d rightResult = mRightKalmanFilter->getState();
+
+    mPrevLeftPosition = leftResult(0);
+    mPrevRightPosition = rightResult(0);
+
+    return { leftResult(0), rightResult(0) };
+}
+
+template <typename PREC>
+std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(const cv::Mat& image, bool runUpdate)
 {
     cv::Mat grayImage;
     cv::cvtColor(image, grayImage, cv::COLOR_BGR2GRAY);
@@ -252,9 +253,6 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(co
     cv::Mat ROI = cannyImage(cv::Rect(0, mROIStartHeight, mImageWidth, mROIHeight));
     Lines allLines;
     cv::HoughLinesP(ROI, allLines, kHoughRho, kHoughTheta, mHoughThreshold, mHoughMinLineLength, mHoughMaxLineGap);
-
-    if (mDebugging)
-        image.copyTo(mDebugFrame);
 
     if (allLines.empty())
         return { mPrevLeftPosition, mPrevRightPosition };
@@ -300,13 +298,12 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(co
     bool leftUpdated = false;
     bool rightUpdated = false;
 
-    mLeftKalmanFilter->predict(inputVector);
-    mRightKalmanFilter->predict(inputVector);
-
     if (lanePositions.size() == 1)
     {
         auto leftGap = std::abs(mPrevLeftPosition - lanePositions[0]);
         auto rightGap = std::abs(mPrevRightPosition - lanePositions[0]);
+
+        // std::cout << leftGap << ", " << rightGap << std::endl;
         if (leftGap < rightGap)
         {
             leftUpdated = true;
@@ -341,7 +338,13 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(co
             }
         }
     }
-    if (leftUpdated)
+
+    if (leftPosition > rightPosition)
+    {
+        std::swap(leftPosition, rightPosition);
+    }
+
+    if (leftUpdated && runUpdate)
     {
         Eigen::Vector2d measureVector;
         PREC gradient = leftPosition - mPrevLeftPosition;
@@ -349,7 +352,7 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(co
         mLeftKalmanFilter->update(measureVector);
     }
 
-    if (rightUpdated)
+    if (rightUpdated && runUpdate)
     {
         Eigen::Vector2d measureVector;
         PREC gradient = rightPosition - mPrevRightPosition;

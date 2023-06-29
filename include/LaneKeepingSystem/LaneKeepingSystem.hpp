@@ -149,6 +149,17 @@ private:
     PREC mLinearUnit;
     PREC mAngleUnit;
 
+    PREC mLidarAngleThreshold;
+    PREC mLidarDistanceThreshold;
+    PREC mLidarClusterThreshold;
+    PREC mLidarClusterMinpoint;
+    PREC mLidarClusterMaxpoint;
+    PREC mLidarTrackingThreshold;
+
+    std::pair<PREC, PREC> mAvoidanceInput;
+
+    std::vector<std::tuple<PREC, PREC, PREC, PREC, ros::Time>> mLidarDetectBox;
+
     // Debug Flag
     bool mDebugging; ///< Debugging or not
 };

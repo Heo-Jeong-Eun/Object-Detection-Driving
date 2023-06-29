@@ -90,7 +90,11 @@ public:
      * @param[in] image Image for searching lane position
      * @return Left x position and Right x position
      */
-    std::pair<int32_t, int32_t> getLanePosition(const cv::Mat& image, Eigen::Vector2d& inputVector);
+    std::pair<int32_t, int32_t> getLanePosition(const cv::Mat& image, bool runUpdate);
+
+    std::pair<int32_t, int32_t> predictLanePosition(Eigen::Vector2d& inputVector);
+
+    void copyDebugFrame(const cv::Mat& image) { image.copyTo(mDebugFrame); }
 
     /**
      * @brief Draw the position rectangles on debug image

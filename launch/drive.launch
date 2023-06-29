@@ -2,7 +2,7 @@
   <arg name="show_img" default="false" />
   
   <include file="$(find xycar_motor)/launch/xycar_motor.launch" />
-  <node name="rosbag" pkg="rosbag" type="record" args="record -O /home/nvidia/r_course.bag /usb_cam/image_raw /scan" />
+  <node name="rosbag" pkg="rosbag" type="record" args="record -O /home/nvidia/sign.bag /usb_cam/image_raw /scan" />
   
   <!-- <node pkg="xycar_imu" type="9dof_imu_node.py" name="xycar_imu" output="screen">
     <param name="rviz_mode" type="string" value="true" />
