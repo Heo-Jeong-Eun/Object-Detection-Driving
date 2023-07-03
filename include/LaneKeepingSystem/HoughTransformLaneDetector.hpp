@@ -84,6 +84,17 @@ public:
      */
     HoughTransformLaneDetector(const YAML::Node& config) { setConfiguration(config); }
 
+    void setLeftLanePosition(int32_t lanePosition) {
+        Eigen::Vector2d inputVector;
+        inputVector << static_cast<PREC>(lanePosition), 0.f;
+        mLeftKalmanFilter->set(inputVector);
+    };
+    void setRightLanePosition(int32_t lanePosition) {
+        Eigen::Vector2d inputVector;
+        inputVector << static_cast<PREC>(lanePosition), 0.f;
+        mRightKalmanFilter->set(inputVector);
+    };
+
     /**
      * @brief Get the Lane Position object
      *

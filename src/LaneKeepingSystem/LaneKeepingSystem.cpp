@@ -77,6 +77,7 @@ void LaneKeepingSystem<PREC>::setParams(const YAML::Node& config)
     mSignInput = std::make_pair(config["SIGN_INPUT"]["POSITION"].as<PREC>(), config["SIGN_INPUT"]["SLOPE"].as<PREC>());
 
     mRotateThreshold = config["XYCAR"]["ROTATE_THRESHOLD"].as<PREC>();
+    mMinBoundingboxArea = config["DETECTION"]["MIN_BOUNDINGBOX_AREA"].as<PREC>();
 }
 
 template <typename PREC>
@@ -98,6 +99,7 @@ void LaneKeepingSystem<PREC>::run()
     bool runUpdate = true;
 
     std::string detectedTrafficSignLabel = "IGNORE";
+    std::string prevDetectedTrafficSignLabel = "IGNORE";
     Eigen::Vector2d inputVector;
     Eigen::Vector2d zeroVector;
 
@@ -162,9 +164,9 @@ void LaneKeepingSystem<PREC>::run()
         }
         else
         {
+            runUpdate = true;
             inputVector << 0.f, 0.f;
             const auto [positionInput, slopeInput] = mRotateInput;
-            bool runUpdate = true;
 
             if (previousSteeringAngle < mRotateThreshold * -1)
             {
@@ -179,10 +181,35 @@ void LaneKeepingSystem<PREC>::run()
                 inputVector << mSignInput.first * -1, mSignInput.second * -1;
                 runUpdate = false;
             }
+            else if (detectedTrafficSignLabel == "RIGHT")
+            {
+                inputVector << mSignInput.first, mSignInput.second;
+                runUpdate = false;
+            }
+
+            std::cout << "PREV DETECTED: " << prevDetectedTrafficSignLabel << std::endl;
             std::cout << "DETECTED: " << detectedTrafficSignLabel << std::endl;
+            std::cout << "RUN UPDATE: " << runUpdate << std::endl;
             // std::cout << "input vector: " << inputVector(0) << std::endl;
             mHoughTransformLaneDetector->predictLanePosition(inputVector);
             auto [predictLeftPositionX, predictRightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame, runUpdate);
+
+            if (detectedTrafficSignLabel == "LEFT")
+            {
+                predictLeftPositionX = 40;
+                predictRightPositionX = 240;
+                mHoughTransformLaneDetector->setLeftLanePosition(40);
+                mHoughTransformLaneDetector->setRightLanePosition(240);
+            }
+
+            if (detectedTrafficSignLabel == "RIGHT")
+            {
+                predictLeftPositionX = 400;
+                predictRightPositionX = 600;
+                mHoughTransformLaneDetector->setLeftLanePosition(400);
+                mHoughTransformLaneDetector->setRightLanePosition(600);
+            }
+
 
             leftPositionX = predictLeftPositionX;
             rightPositionX = predictRightPositionX;
@@ -229,6 +256,7 @@ void LaneKeepingSystem<PREC>::run()
 
         previousSteeringAngle = steeringAngle;
         previousStopDetected = stopDetected;
+        prevDetectedTrafficSignLabel = detectedTrafficSignLabel;
 
         if (mDebugging)
         {
@@ -406,7 +434,7 @@ void LaneKeepingSystem<PREC>::trafficSignCallback(const yolov3_trt_ros::Bounding
         int32_t maxY = boundingBox.ymax;
         int32_t boundingBoxArea = (maxX - minX) * (maxY - minY);
 
-        if (boundingBoxArea <= 3000)
+        if (boundingBoxArea <= mMinBoundingboxArea)
         {
             continue;
         }
@@ -434,7 +462,7 @@ void LaneKeepingSystem<PREC>::trafficSignCallback(const yolov3_trt_ros::Bounding
 
             for (auto trafficSign : trafficSigns)
             {
-                if (std::abs(boundingBoxArea - std::get<0>(trafficSign)) <= boundingBoxArea * 0.1 && trafficSignLabel == std::get<1>(trafficSign))
+                if (std::abs(boundingBoxArea - std::get<0>(trafficSign)) <= boundingBoxArea * 0.3 && trafficSignLabel == std::get<1>(trafficSign))
                 {
                     DetectTrafficSigns.push(std::make_pair(std::get<0>(trafficSign), std::make_pair(std::get<1>(trafficSign), std::get<2>(trafficSign))));
                     isUpdate = true;

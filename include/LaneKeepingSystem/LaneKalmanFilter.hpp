@@ -36,6 +36,8 @@ public:
     void predict(const Eigen::Vector2d& u);
     void update(const Eigen::Vector2d& z);
 
+    void set(const Eigen::Vector2d& x) { mX = x; };
+
     Eigen::Vector2d getState() { return mX; }
 
 private:

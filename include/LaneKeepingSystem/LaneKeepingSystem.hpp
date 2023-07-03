@@ -165,6 +165,8 @@ private:
 
     PREC mSignSignalSecond;
 
+    PREC mMinBoundingboxArea;
+
     std::pair<PREC, PREC> mAvoidanceInput;
     std::pair<PREC, PREC> mRotateInput;
     std::pair<PREC, PREC> mSignInput;
