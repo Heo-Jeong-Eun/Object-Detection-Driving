@@ -271,7 +271,7 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(co
         for (int j = i + 1; j < lanes.size(); j++)
         {
             auto targetLanePositionX = getLinePositionX(allLines, lanes[j], Direction::NONE);
-            if (std::abs(lanePositionX - targetLanePositionX) <= 70)
+            if (std::abs(lanePositionX - targetLanePositionX) <= 100)
             {
                 overlap = true;
                 break;
