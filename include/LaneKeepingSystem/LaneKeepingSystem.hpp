@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <eigen3/Eigen/Dense>
+#include <queue>
 #include <ros/ros.h>
 #include <string>
 #include <tuple>
@@ -35,6 +36,8 @@
 #include "LaneKeepingSystem/PIDController.hpp"
 #include "LaneKeepingSystem/StanleyController.hpp"
 #include "LaneKeepingSystem/VehicleModel.hpp"
+
+using DetectBoxs = std::priority_queue<std::pair<int32_t, std::pair<int16_t, ros::Time>>>;
 
 namespace Xycar {
 /**
@@ -130,6 +133,7 @@ private:
     cv::Mat mFrame; ///< Image from camera. The raw image is converted into cv::Mat
     std::vector<std::string> mDetectionLabel;
 
+    DetectBoxs mDetectTrafficSigns;
     int16_t mTrafficSignLabel;
 
     // Xycar Device variables
@@ -159,8 +163,11 @@ private:
     PREC mLidarTrackingThreshold;
     PREC mLidarTrackingMissSecond;
 
+    PREC mSignSignalSecond;
+
     std::pair<PREC, PREC> mAvoidanceInput;
     std::pair<PREC, PREC> mRotateInput;
+    std::pair<PREC, PREC> mSignInput;
 
     std::vector<std::tuple<PREC, PREC, PREC, PREC, ros::Time>> mLidarDetectBox;
 

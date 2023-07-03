@@ -70,8 +70,12 @@ void LaneKeepingSystem<PREC>::setParams(const YAML::Node& config)
     mLidarTrackingThreshold = config["LIDAR"]["TRACKING_DISTANCE_THRESHOLD"].as<PREC>();
     mLidarTrackingMissSecond = config["LIDAR"]["TRACKING_MISS_SECOND"].as<PREC>();
 
+    mSignSignalSecond = config["DETECTION"]["SIGN_LIFESECOND"].as<PREC>();
+
     mAvoidanceInput = std::make_pair(config["AVOIDANCE_INPUT"]["POSITION"].as<PREC>(), config["AVOIDANCE_INPUT"]["SLOPE"].as<PREC>());
     mRotateInput = std::make_pair(config["ROTATE_INPUT"]["POSITION"].as<PREC>(), config["ROTATE_INPUT"]["SLOPE"].as<PREC>());
+    mSignInput = std::make_pair(config["SIGN_INPUT"]["POSITION"].as<PREC>(), config["SIGN_INPUT"]["SLOPE"].as<PREC>());
+
     mRotateThreshold = config["XYCAR"]["ROTATE_THRESHOLD"].as<PREC>();
 }
 
@@ -113,9 +117,14 @@ void LaneKeepingSystem<PREC>::run()
 
         mHoughTransformLaneDetector->copyDebugFrame(mFrame);
 
-        if (mTrafficSignLabel > 0)
+        if (!mDetectTrafficSigns.empty())
         {
-            detectedTrafficSignLabel = mDetectionLabel[mTrafficSignLabel];
+            const auto [boundingBoxArea, box] = mDetectTrafficSigns.top();
+            const auto [trafficSignLabel, trafficSignTime] = box;
+
+            detectedTrafficSignLabel = mDetectionLabel[trafficSignLabel];
+        } else {
+            detectedTrafficSignLabel = "IGNORE";
         }
 
         int32_t leftPositionX = 0;
@@ -155,18 +164,25 @@ void LaneKeepingSystem<PREC>::run()
         {
             inputVector << 0.f, 0.f;
             const auto [positionInput, slopeInput] = mRotateInput;
+            bool runUpdate = true;
 
             if (previousSteeringAngle < mRotateThreshold * -1)
             {
                 inputVector << positionInput * -1, slopeInput * -1;
             }
-            if (previousSteeringAngle > mRotateThreshold)
+            else if (previousSteeringAngle > mRotateThreshold)
             {
                 inputVector << positionInput, slopeInput;
             }
-            std::cout << "input vector: " << inputVector(0) << std::endl;
+            else if (detectedTrafficSignLabel == "LEFT")
+            {
+                inputVector << mSignInput.first * -1, mSignInput.second * -1;
+                runUpdate = false;
+            }
+            std::cout << "DETECTED: " << detectedTrafficSignLabel << std::endl;
+            // std::cout << "input vector: " << inputVector(0) << std::endl;
             mHoughTransformLaneDetector->predictLanePosition(inputVector);
-            auto [predictLeftPositionX, predictRightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame, true);
+            auto [predictLeftPositionX, predictRightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame, runUpdate);
 
             leftPositionX = predictLeftPositionX;
             rightPositionX = predictRightPositionX;
@@ -192,7 +208,7 @@ void LaneKeepingSystem<PREC>::run()
         }
 
         std::cout << "position: " << leftPositionX << ", " << rightPositionX << std::endl;
-        std::cout << "steeringAngle: " << steeringAngle << std::endl;
+        // std::cout << "steeringAngle: " << steeringAngle << std::endl;
 
         // std::cout << "sign: " << detectedTrafficSignLabel << std::endl;
         // std::cout << "input vector: " << inputVector(0) << std::endl;
@@ -378,12 +394,61 @@ void LaneKeepingSystem<PREC>::liDARCallback(const sensor_msgs::LaserScan::ConstP
 template <typename PREC>
 void LaneKeepingSystem<PREC>::trafficSignCallback(const yolov3_trt_ros::BoundingBoxes& message)
 {
-    // std::cout << "detected bounding box: " << message.bounding_boxes.size() << std::endl;
+    DetectBoxs DetectTrafficSigns;
+    ros::Time now = ros::Time::now();
+    std::vector<std::tuple<int32_t, int16_t, ros::Time>> trafficSigns;
+
     for (auto boundingBox : message.bounding_boxes)
     {
-        // std::cout << "bounding box: " << mDetectionLabel[boundingBox.id] << ", " << boundingBox.probability << std::endl;
-        mTrafficSignLabel = boundingBox.id;
+        int32_t minX = boundingBox.xmin;
+        int32_t minY = boundingBox.ymin;
+        int32_t maxX = boundingBox.xmax;
+        int32_t maxY = boundingBox.ymax;
+        int32_t boundingBoxArea = (maxX - minX) * (maxY - minY);
+
+        if (boundingBoxArea <= 3000)
+        {
+            continue;
+        }
+
+        trafficSigns.push_back(std::make_tuple(boundingBoxArea, boundingBox.id, now));
     }
+
+    if (mDetectTrafficSigns.empty())
+    {
+        for (auto trafficSign : trafficSigns)
+        {
+            DetectTrafficSigns.push(std::make_pair(std::get<0>(trafficSign), std::make_pair(std::get<1>(trafficSign), std::get<2>(trafficSign))));
+        }
+    }
+    else
+    {
+        while (!mDetectTrafficSigns.empty())
+        {
+            bool isUpdate = false;
+            const auto [boundingBoxArea, box] = mDetectTrafficSigns.top();
+            const auto [trafficSignLabel, trafficSignTime] = box;
+
+            ros::Duration timeDiff = now - trafficSignTime;
+            mDetectTrafficSigns.pop();
+
+            for (auto trafficSign : trafficSigns)
+            {
+                if (std::abs(boundingBoxArea - std::get<0>(trafficSign)) <= boundingBoxArea * 0.1 && trafficSignLabel == std::get<1>(trafficSign))
+                {
+                    DetectTrafficSigns.push(std::make_pair(std::get<0>(trafficSign), std::make_pair(std::get<1>(trafficSign), std::get<2>(trafficSign))));
+                    isUpdate = true;
+                    break;
+                }
+            }
+
+            if (!isUpdate && timeDiff.toSec() <= mSignSignalSecond)
+            {
+                DetectTrafficSigns.push(std::make_pair(boundingBoxArea, std::make_pair(trafficSignLabel, trafficSignTime)));
+            }
+        }
+    }
+    mDetectTrafficSigns = DetectTrafficSigns;
 }
 
 template <typename PREC>
