@@ -179,12 +179,10 @@ void LaneKeepingSystem<PREC>::run()
             else if (detectedTrafficSignLabel == "LEFT")
             {
                 inputVector << mSignInput.first * -1, mSignInput.second * -1;
-                runUpdate = false;
             }
             else if (detectedTrafficSignLabel == "RIGHT")
             {
                 inputVector << mSignInput.first, mSignInput.second;
-                runUpdate = false;
             }
 
             std::cout << "PREV DETECTED: " << prevDetectedTrafficSignLabel << std::endl;
@@ -192,24 +190,7 @@ void LaneKeepingSystem<PREC>::run()
             std::cout << "RUN UPDATE: " << runUpdate << std::endl;
             // std::cout << "input vector: " << inputVector(0) << std::endl;
             mHoughTransformLaneDetector->predictLanePosition(inputVector);
-            auto [predictLeftPositionX, predictRightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame, runUpdate);
-
-            if (detectedTrafficSignLabel == "LEFT")
-            {
-                predictLeftPositionX = 40;
-                predictRightPositionX = 240;
-                mHoughTransformLaneDetector->setLeftLanePosition(40);
-                mHoughTransformLaneDetector->setRightLanePosition(240);
-            }
-
-            if (detectedTrafficSignLabel == "RIGHT")
-            {
-                predictLeftPositionX = 400;
-                predictRightPositionX = 600;
-                mHoughTransformLaneDetector->setLeftLanePosition(400);
-                mHoughTransformLaneDetector->setRightLanePosition(600);
-            }
-
+            auto [predictLeftPositionX, predictRightPositionX] = mHoughTransformLaneDetector->getLanePosition(mFrame, runUpdate, detectedTrafficSignLabel);
 
             leftPositionX = predictLeftPositionX;
             rightPositionX = predictRightPositionX;

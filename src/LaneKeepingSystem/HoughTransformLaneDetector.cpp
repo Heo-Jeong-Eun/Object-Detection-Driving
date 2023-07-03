@@ -239,7 +239,7 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::predictLanePositio
 }
 
 template <typename PREC>
-std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(const cv::Mat& image, bool runUpdate)
+std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(const cv::Mat& image, bool runUpdate, std::string detection)
 {
     cv::Mat grayImage;
     cv::cvtColor(image, grayImage, cv::COLOR_BGR2GRAY);
@@ -283,10 +283,6 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(co
             lanePositions.push_back(static_cast<PREC>(lanePositionX));
         }
     }
-
-    // std::cout << "all line size: " << allLines.size() << std::endl;
-    // std::cout << "cluster lane size: " << lanePositions.size() << std::endl;
-    // std::cout << "detected stop lane: " << detectedStopLane << std::endl;
 
     int i = 0;
     PREC left_minimum_distance = mPrevLeftPosition == -1 ? 10000 : mContinusThreshold;
@@ -337,6 +333,13 @@ std::pair<int32_t, int32_t> HoughTransformLaneDetector<PREC>::getLanePosition(co
                 right_minimum_distance = rightGap;
             }
         }
+    }
+
+    if (detection == "LEFT") {
+        rightPosition =  leftPosition + 200;
+    }
+    if (detection == "RIGHT") {
+        leftPosition =  rightPosition - 200;
     }
 
     if (leftPosition > rightPosition)

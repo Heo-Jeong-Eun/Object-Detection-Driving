@@ -101,7 +101,7 @@ public:
      * @param[in] image Image for searching lane position
      * @return Left x position and Right x position
      */
-    std::pair<int32_t, int32_t> getLanePosition(const cv::Mat& image, bool runUpdate);
+    std::pair<int32_t, int32_t> getLanePosition(const cv::Mat& image, bool runUpdate, std::string detection);
 
     std::pair<int32_t, int32_t> predictLanePosition(Eigen::Vector2d& inputVector);
 
