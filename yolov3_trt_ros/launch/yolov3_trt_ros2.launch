@@ -1,0 +1,31 @@
+<launch>
+    <arg name="kp" default="0.36" />
+    <arg name="ki" default="0.0006" />
+    <arg name="kd" default="0.08" />
+    <arg name="show_img" default="true" />
+    <arg name="speed" default="5" />
+    <param name="kp" value="$(arg kp)"/>
+    <param name="ki" value="$(arg ki)"/>
+    <param name="kd" value="$(arg kd)"/>
+    <param name="show_img" value="$(arg show_img)"/>
+    <param name="speed" value="$(arg speed)"/>
+  <!-- usb_cam -->
+  <node name="usb_cam" pkg="usb_cam" type="usb_cam_node" output="screen" >
+        <param name="video_device" value="/dev/video0" />
+        <param name="autoexposure" value="false"/>
+        <param name="exposure" value="50"/>
+        <param name="image_width" value="640" />
+        <param name="image_height" value="480" />
+        <param name="pixel_format" value="yuyv" />
+        <param name="camera_frame_id" value="usb_cam" />
+        <param name="io_method" value="mmap" />
+    </node>
+  <!-- rosbag record -->
+  <!-- <node name="rosbag" pkg="rosbag" type="record" args="-O ./motor_state.bag /xycar_motor"/> -->
+  <node name="trt_detection" pkg="yolov3_trt_ros" type="trt_detection3(ver3).py" output="screen" />
+  <!-- <node name="trt_drive" pkg="yolov3_trt_ros" type="trt_drive.py" output="screen" /> -->
+  
+  <!-- motor node -->
+  <!-- <include file="$(find xycar_motor)/launch/xycar_motor.launch" /> -->
+
+</launch>

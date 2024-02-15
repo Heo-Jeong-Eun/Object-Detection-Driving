@@ -1,0 +1,11 @@
+float64 probability
+int64 xmin
+int64 ymin
+int64 xmax
+int64 ymax
+int16 id
+float64 x
+float64 y
+float64 z
+float64 distance
+int16 color
