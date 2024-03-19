@@ -3,7 +3,7 @@ The Records of Object Detection Driving Project.
 
 > ****<a href = https://www.notion.so/Object-Detection-8e6952e4ae7f4e89ba63f8db68139014>Object Detection Driving- 2023</a>****
 > 
-> - **4-person Project** at Dev-Course Perception
+> - **4-Person Project** at Dev-Course Perception
 > - **Role** in a Project
 >     - Data Labeling
 >     - **Algorithms Design**
